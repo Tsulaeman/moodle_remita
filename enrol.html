@@ -1,0 +1,160 @@
+
+<style>
+    .remita-payment-btn {
+        border: 1px solid #f46424;
+        padding: 10px 25px;
+        border-radius: 20px;
+        color: #f46424;
+        transition: all .4s ease;
+    }
+    .remita-payment-btn:hover {
+        background-color: #f46424;
+        color: #FFF;
+    }
+</style>
+<div class="mdl-align">
+    <h3><?= $instancename; ?></h3>
+    <p><?= $message; ?></p>
+    <p><b><?= get_string("cost").": {$instance->currency} {$localisedcost}"; ?></b></p>
+    <div>
+        <?php
+            $data = [
+                "charset" => "utf-8",
+                "item_name" => s($coursefullname),
+                "currency_code" => $instance->currency,
+                "amount" => $cost,
+                "fullname" => s($userfullname),
+                "email" => s($useremail),
+                "reference" => $reference,
+                "rrr" => $rrr,
+                "public_key" => $public_key,
+                "url" => $url,
+                "merchant_id" => $this->merchantId,
+                "remita_consumer_token" => $remita_consumer_token,
+                "service_type_id" => $this->serviceTypeId,
+                "description" => $description
+            ];
+        ?>
+        <form onsubmit="makePayment()" id="payment-form">
+            <?php
+                foreach ($data as $key => $value) {
+                    echo '<input type="hidden" name="' . $key . '" value="' . $value . '" />';
+                }
+            ?>
+            <input type="hidden" name="custom" value="<?php echo "{$USER->id}-{$course->id}-{$instance->id}" ?>" />
+            <input
+                type="button"
+                class="remita-payment-btn"
+                onclick="makePayment()"
+                value="Pay"
+            />
+        </form>
+    <script>
+        function makePayment() {
+            var form = document.querySelector("#payment-form");
+            // ============ Get data from form
+            var url = form.querySelector('input[name="url"]').value;
+            var remitaConsumerKey = form.querySelector('input[name="merchant_id"]').value;
+            var remitaConsumerToken = form.querySelector('input[name="remita_consumer_token"]').value
+            var reference = form.querySelector('input[name="reference"]').value;
+            var rrr = form.querySelector('input[name="rrr"]').value;
+            var serviceTypeId = form.querySelector('input[name="service_type_id"]').value
+
+            var currencyCode = form.querySelector('input[name="currency_code"]').value;
+            var amount = form.querySelector('input[name="amount"]').value;
+            var payerName = form.querySelector('input[name="fullname"]').value;
+            var payerEmail = form.querySelector('input[name="email"]').value;
+            var description = form.querySelector('input[name="description"]').value;
+            var publickey = form.querySelector('input[name="public_key"]').value;
+            // =========== END
+
+            var Http = new XMLHttpRequest();
+
+            Http.open("POST", url);
+            Http.setRequestHeader('Cache-Control', 'no-cache');
+            Http.setRequestHeader('Content-Type', 'application/json');
+            Http.setRequestHeader('Authorization', `remitaConsumerKey=${remitaConsumerKey},remitaConsumerToken=${remitaConsumerToken}`);
+            // var formData = new FormData();
+            var data = {
+                    serviceTypeId,
+                    amount,
+                    orderId: reference,
+                    payerName,
+                    payerEmail,
+                    payerPhone: "09062067384",
+                    description,
+            };
+            Http.onload = function () {
+                if (this.readyState === XMLHttpRequest.DONE && this.status === 200) {
+                    function jsonp (resp){
+                        var handler = RmPaymentEngine.init({
+                            key: publickey,
+                            processRrr: true,
+                            transactionId: reference, // Replace with transaction id
+                            extendedData: { // Optional field. Details are available in the table
+                                customFields: [
+                                    {
+                                        name: "rrr",
+                                        value: parseInt(resp.RRR, 10)
+                                    }
+                                ]
+                            },
+                            onSuccess: function (response) { // Send to verification page
+                                console.log(response);
+                                var verifyForm = document.createElement('form');
+                                verifyForm.method = "POST";
+                                verifyForm.action = "<?= $CFG->wwwroot ?>/enrol/remita/verify.php";
+
+                                var inputs = [
+                                    {
+                                        name: "rrr",
+                                        value: parseInt(resp.RRR, 10)
+                                    },
+                                    {
+                                        name: "amount",
+                                        value: amount
+                                    },
+                                    {
+                                        name: "currency_code",
+                                        value: currencyCode
+                                    },
+                                    {
+                                        name: "apiHash",
+                                        value: remitaConsumerToken
+                                    }
+
+                                ];
+
+                                inputs.forEach(function(input){
+                                    var hidden = document.createElement("input");
+                                    hidden.type = "hidden",
+                                    hidden.name = input.name;
+                                    hidden.value = input.value;
+                                    verifyForm.appendChild(hidden);
+                                });
+                                var customHidden = document.createElement('input');
+                                customHidden.type = "hidden";
+                                customHidden.name = "custom";
+                                customHidden.value = form.querySelector('input[name="custom"]').value;
+                                verifyForm.appendChild(customHidden);
+
+                                document.body.appendChild(verifyForm);
+                                verifyForm.submit();
+                            },
+                            onError: function (response) { // Function call for use if the transaction fails
+                                console.log('callback Error Response', response);
+                            },
+                            onClose: function () { // Function call for use if the customer closes the transaction without completion
+                                console.log("closed");
+                            }
+                        });
+                        handler.showPaymentWidget();
+                    }
+                    eval(Http.response);
+                }
+            }
+            Http.send(JSON.stringify(data));
+        }
+    </script>
+    <script type="text/javascript" src="<?= $bundle_url ?>"></script>
+</div>
